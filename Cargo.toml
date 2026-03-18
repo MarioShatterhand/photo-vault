@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 dioxus = { version = "0.7.3", features = ["router", "fullstack"] }
+serde = { version = "1", features = ["derive"] }
 
 [features]
 default = ["web"]
@@ -18,4 +19,22 @@ desktop = ["dioxus/desktop"]
 # The feature that are only required for the mobile = ["dioxus/mobile"] build target should be optional and only enabled in the mobile = ["dioxus/mobile"] feature
 mobile = ["dioxus/mobile"]
 # The feature that are only required for the server = ["dioxus/server"] build target should be optional and only enabled in the server = ["dioxus/server"] feature
-server = ["dioxus/server"]
+server = ["dioxus/server", "dep:sqlx", "dep:tokio", "dep:tracing", "dep:tracing-subscriber"]
+
+[dependencies.sqlx]
+version = "0.8"
+features = ["runtime-tokio", "sqlite", "migrate"]
+optional = true
+
+[dependencies.tokio]
+version = "1"
+features = ["full"]
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+optional = true

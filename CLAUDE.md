@@ -120,20 +120,20 @@ cargo test            # Run tests
 cargo clippy          # Lint
 ```
 
-## Current Phase: 1 — Scaffold
+## Current Phase: 2 — Upload & Gallery
 
-We are restructuring the dx-generated Jumpstart template into PhotoVault layout.
+Phase 1 (Scaffold) is complete. Now building core photo functionality.
 
-### Phase 1 goals:
+### Phase 1 goals (DONE):
 - [x] Project created with dx new (Jumpstart, fullstack, router, tailwind)
-- [ ] Remove demo content (hero, blog, echo components)
-- [ ] Set up route structure: Home (gallery), Upload, About
-- [ ] Create placeholder components: PhotoGrid, SearchBar, UploadForm
-- [ ] Navbar with PhotoVault branding and navigation links
-- [ ] Add SQLx + SQLite dependency, create db.rs with connection pool
-- [ ] Create Photo model (id, filename, original_name, hash, size, created_at)
-- [ ] First migration: photos table
-- [ ] Verify everything compiles and `dx serve` shows the new layout
+- [x] Remove demo content (hero, blog, echo components)
+- [x] Set up route structure: Home (gallery), Upload, About
+- [x] Create placeholder components: PhotoGrid, SearchBar, UploadForm
+- [x] Navbar with PhotoVault branding and navigation links (dark topbar, slate-900)
+- [x] Add SQLx + SQLite dependency, create db.rs with connection pool (Lazy<SqlitePool>)
+- [x] Create Photo model (id, filename, original_name, hash, size, created_at)
+- [x] First migration: photos table
+- [x] Verify everything compiles and `dx serve` shows the new layout
 
 ### Phase 2 goals (next):
 - [ ] File upload via dedicated Axum multipart endpoint
