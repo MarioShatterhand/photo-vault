@@ -41,7 +41,8 @@ fn main() {
                 .route("/api/upload", axum::routing::post(server::photos::upload_photo)
                     .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)))
                 .route("/api/photos/{public_id}/thumb", axum::routing::get(server::photos::serve_thumbnail))
-                .route("/api/photos/{public_id}/full", axum::routing::get(server::photos::serve_full));
+                .route("/api/photos/{public_id}/full", axum::routing::get(server::photos::serve_full))
+                .route("/api/photos/{public_id}", axum::routing::delete(server::photos::delete_photo));
             Ok(router)
         });
     }

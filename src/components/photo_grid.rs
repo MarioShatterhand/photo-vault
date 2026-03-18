@@ -1,8 +1,10 @@
 use dioxus::prelude::*;
 use crate::api::list_photos;
+use crate::components::{LazyImage, Lightbox};
 
 #[component]
 pub fn PhotoGrid(refresh: ReadSignal<u64>) -> Element {
+    let mut current_lightbox: Signal<Option<usize>> = use_signal(|| None);
     let photos = use_server_future(move || {
         let _ = refresh();
         list_photos()
@@ -17,19 +19,26 @@ pub fn PhotoGrid(refresh: ReadSignal<u64>) -> Element {
                         p { class: "text-sm mt-2", "Dodaj zdjęcia, aby zobaczyć je tutaj" }
                     }
                 }
-                for photo in photos {
+                for (index, photo) in photos.iter().enumerate() {
                     div {
                         class: "relative group cursor-pointer overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-shadow",
-                        img {
-                            src: "/api/photos/{photo.public_id}/thumb",
-                            alt: "{photo.original_name}",
-                            class: "w-full h-48 object-cover",
+                        onclick: move |_| {
+                            current_lightbox.set(Some(index));
+                        },
+                        LazyImage {
+                            src: format!("/api/photos/{}/thumb", photo.public_id),
+                            alt: photo.original_name.clone(),
+                            class: "w-full h-48 object-cover".to_string(),
                         }
                         div { class: "absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2",
                             p { class: "text-white text-sm truncate", "{photo.original_name}" }
                         }
                     }
                 }
+            }
+            Lightbox {
+                photos: photos.clone(),
+                current_index: current_lightbox,
             }
         },
         Some(Err(e)) => rsx! {

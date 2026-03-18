@@ -6,3 +6,9 @@ pub use search_bar::SearchBar;
 
 mod upload_form;
 pub use upload_form::UploadForm;
+
+mod lightbox;
+pub use lightbox::Lightbox;
+
+mod lazy_image;
+pub use lazy_image::LazyImage;

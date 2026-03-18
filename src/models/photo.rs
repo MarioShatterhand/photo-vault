@@ -9,5 +9,7 @@ pub struct Photo {
     pub original_name: String,
     pub hash: String,
     pub size: i64,
+    pub width: i64,
+    pub height: i64,
     pub created_at: String,
 }

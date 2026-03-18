@@ -3,6 +3,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum_extra::extract::Multipart;
 use image::imageops::FilterType;
+use image::GenericImageView;
 use sha2::{Digest, Sha256};
 use crate::models::Photo;
 use crate::server::db::DB;
@@ -100,18 +101,19 @@ pub async fn upload_photo(mut multipart: Multipart) -> Result<Json<Photo>, (Stat
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to save file: {e}")))?;
 
-        // Generate thumbnail (300px wide, preserve aspect ratio)
-        let thumb_bytes = {
+        // Read dimensions and generate thumbnail
+        let (width, height, thumb_bytes) = {
             let bytes = bytes.clone();
-            tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+            tokio::task::spawn_blocking(move || -> Result<(u32, u32, Vec<u8>), String> {
                 let img = image::load_from_memory(&bytes)
                     .map_err(|e| format!("Failed to decode image: {e}"))?;
+                let (w, h) = img.dimensions();
                 let thumb = img.resize(300, u32::MAX, FilterType::Lanczos3);
                 let mut cursor = std::io::Cursor::new(Vec::new());
                 thumb
                     .write_to(&mut cursor, image::ImageFormat::Jpeg)
                     .map_err(|e| format!("Failed to encode thumbnail: {e}"))?;
-                Ok(cursor.into_inner())
+                Ok((w, h, cursor.into_inner()))
             })
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
@@ -129,13 +131,15 @@ pub async fn upload_photo(mut multipart: Multipart) -> Result<Json<Photo>, (Stat
         let size = bytes.len() as i64;
         let public_id = uuid::Uuid::new_v4().to_string();
         let photo: Photo = sqlx::query_as(
-            "INSERT INTO photos (public_id, filename, original_name, hash, size) VALUES (?, ?, ?, ?, ?) RETURNING *"
+            "INSERT INTO photos (public_id, filename, original_name, hash, size, width, height) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *"
         )
         .bind(&public_id)
         .bind(&filename)
         .bind(&original_name)
         .bind(&hash)
         .bind(size)
+        .bind(width as i64)
+        .bind(height as i64)
         .fetch_one(&*DB)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB insert error: {e}")))?;
@@ -165,7 +169,10 @@ pub async fn serve_thumbnail(Path(public_id): Path<String>) -> Result<Response, 
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     Ok((
-        [(header::CONTENT_TYPE, "image/jpeg")],
+        [
+            (header::CONTENT_TYPE, "image/jpeg"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
         bytes,
     ).into_response())
 }
@@ -188,8 +195,44 @@ pub async fn serve_full(Path(public_id): Path<String>) -> Result<Response, Statu
     let content_type = content_type_from_extension(ext);
 
     Ok((
-        [(header::CONTENT_TYPE, content_type)],
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
         bytes,
     ).into_response())
+}
+
+/// DELETE /api/photos/:public_id
+pub async fn delete_photo(Path(public_id): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
+    let photo: Photo = sqlx::query_as("SELECT * FROM photos WHERE public_id = ?")
+        .bind(&public_id)
+        .fetch_optional(&*DB)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Photo not found".to_string()))?;
+
+    // Delete from database
+    sqlx::query("DELETE FROM photos WHERE id = ?")
+        .bind(photo.id)
+        .execute(&*DB)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB delete error: {e}")))?;
+
+    // Delete original file
+    let original_path = format!("uploads/{}", photo.filename);
+    if let Err(e) = tokio::fs::remove_file(&original_path).await {
+        tracing::warn!("Failed to remove file {}: {}", original_path, e);
+    }
+
+    // Delete thumbnail
+    let thumb_filename = format!("{}.jpg", photo.hash);
+    let thumb_path = format!("uploads/thumbs/{}", thumb_filename);
+    if let Err(e) = tokio::fs::remove_file(&thumb_path).await {
+        tracing::warn!("Failed to remove thumbnail {}: {}", thumb_path, e);
+    }
+
+    tracing::info!("Deleted photo: {} ({})", photo.original_name, photo.public_id);
+    Ok(StatusCode::NO_CONTENT)
 }
 

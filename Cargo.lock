@@ -1194,6 +1194,7 @@ dependencies = [
  "gloo-net",
  "hex",
  "image",
+ "js-sys",
  "serde",
  "sha2",
  "sqlx",

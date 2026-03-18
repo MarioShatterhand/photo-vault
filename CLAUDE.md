@@ -27,14 +27,16 @@ libraries, no npm, everything hand-built in Rust.
 ```
 src/
 ├── main.rs              # dioxus::launch, root App component, Route enum
+├── api.rs               # Shared server functions (list_photos)
 ├── models/
-│   └── photo.rs         # Photo struct (shared between frontend/backend)
+│   └── photo.rs         # Photo struct (id, public_id, filename, hash, size, width, height, created_at)
 ├── components/
 │   ├── mod.rs
-│   ├── photo_grid.rs    # Thumbnail grid component
+│   ├── photo_grid.rs    # Thumbnail grid with LazyImage + Lightbox integration
 │   ├── search_bar.rs    # Debounced search input
-│   ├── upload_form.rs   # File upload component
-│   └── lightbox.rs      # Fullscreen photo viewer modal
+│   ├── upload_form.rs   # File upload component (web_sys FormData + gloo-net)
+│   ├── lightbox.rs      # Fullscreen photo viewer with metadata panel + delete
+│   └── lazy_image.rs    # IntersectionObserver lazy loading wrapper
 ├── views/
 │   ├── mod.rs
 │   ├── home.rs          # Landing / gallery view
@@ -120,9 +122,9 @@ cargo test            # Run tests
 cargo clippy          # Lint
 ```
 
-## Current Phase: 3 — Lightbox & Detail View
+## Current Phase: 4 — Search
 
-Phases 1-2 complete. Now building photo viewing experience.
+Phases 1-3 complete. Now building search functionality.
 
 ### Phase 1 goals (DONE):
 - [x] Project created with dx new (Jumpstart, fullstack, router, tailwind)
@@ -145,10 +147,33 @@ Phases 1-2 complete. Now building photo viewing experience.
 - [x] Gallery refresh after upload (Signal context)
 - [x] File validation (JPEG/PNG/WebP/GIF, 20MB limit + DefaultBodyLimit)
 
-### Phase 3 goals:
-- [ ] Lightbox component (click thumbnail → fullscreen)
-- [ ] Lazy loading (IntersectionObserver via web-sys)
-- [ ] Photo detail view with metadata
+### Phase 3 goals (DONE):
+- [x] Lightbox component (click thumbnail → fullscreen, overlay + metadata panel)
+- [x] Lazy loading (IntersectionObserver via web-sys, skeleton placeholders)
+- [x] Photo detail view with metadata (name, size, dimensions, date)
+- [x] Delete photo (server endpoint + remove file/thumb + confirm dialog)
+- [x] width/height dimensions stored in DB, read at upload time
+- [x] Cache-Control headers on image-serving endpoints
+- [x] Keyboard navigation (ArrowLeft/Right, Escape) + overlay click-to-close
+
+### Phase 1.5 goals (BACKLOG — Authentication, WebAuthn/Passkeys):
+- [ ] Add `webauthn-rs` dependency (server-side only)
+- [ ] DB migration: users table (id, username, created_at) + credentials table (credential_id, user_id, passkey_json)
+- [ ] Registration flow:
+  - [ ] Register page with username input
+  - [ ] Server: generate challenge via webauthn-rs
+  - [ ] Client: call navigator.credentials.create() via web-sys
+  - [ ] Server: verify & store credential
+- [ ] Login flow:
+  - [ ] Login page
+  - [ ] Server: generate auth challenge
+  - [ ] Client: call navigator.credentials.get() via web-sys
+  - [ ] Server: verify assertion, create session
+- [ ] Session management:
+  - [ ] Cookie-based session token
+  - [ ] Axum middleware rejecting unauthenticated requests
+  - [ ] Redirect to login if no valid session
+- [ ] Auth guard on all routes except /login and /register
 
 ### Phase 4 goals:
 - [ ] SQLite FTS5 search
