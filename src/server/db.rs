@@ -19,5 +19,9 @@ pub static DB: Lazy<SqlitePool> = Lazy::new(|| async move {
 
     tracing::info!("Database connected and migrations applied");
 
+    tokio::fs::create_dir_all("uploads/thumbs")
+        .await
+        .expect("Failed to create uploads directory");
+
     dioxus::Ok(pool)
 });

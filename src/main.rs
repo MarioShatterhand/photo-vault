@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use views::{About, Home, Navbar, Upload};
 
+mod api;
 mod components;
 mod models;
 mod views;
@@ -36,7 +37,11 @@ fn main() {
         dioxus::serve(|| async move {
             // Force DB initialization on startup
             let _ = &*server::db::DB;
-            let router = dioxus::server::router(App);
+            let router = dioxus::server::router(App)
+                .route("/api/upload", axum::routing::post(server::photos::upload_photo)
+                    .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)))
+                .route("/api/photos/{public_id}/thumb", axum::routing::get(server::photos::serve_thumbnail))
+                .route("/api/photos/{public_id}/full", axum::routing::get(server::photos::serve_full));
             Ok(router)
         });
     }

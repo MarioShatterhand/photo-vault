@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 pub struct Photo {
     pub id: i64,
+    pub public_id: String,
     pub filename: String,
     pub original_name: String,
     pub hash: String,

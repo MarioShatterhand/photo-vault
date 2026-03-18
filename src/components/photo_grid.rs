@@ -1,13 +1,42 @@
 use dioxus::prelude::*;
+use crate::api::list_photos;
 
 #[component]
-pub fn PhotoGrid() -> Element {
-    rsx! {
-        div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4",
-            div { class: "col-span-full text-center text-gray-500 py-12",
-                p { class: "text-lg", "Brak zdjęć" }
-                p { class: "text-sm mt-2", "Dodaj zdjęcia, aby zobaczyć je tutaj" }
+pub fn PhotoGrid(refresh: ReadSignal<u64>) -> Element {
+    let photos = use_server_future(move || {
+        let _ = refresh();
+        list_photos()
+    })?;
+
+    match photos() {
+        Some(Ok(photos)) => rsx! {
+            div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4",
+                if photos.is_empty() {
+                    div { class: "col-span-full text-center text-gray-500 py-12",
+                        p { class: "text-lg", "Brak zdjęć" }
+                        p { class: "text-sm mt-2", "Dodaj zdjęcia, aby zobaczyć je tutaj" }
+                    }
+                }
+                for photo in photos {
+                    div {
+                        class: "relative group cursor-pointer overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-shadow",
+                        img {
+                            src: "/api/photos/{photo.public_id}/thumb",
+                            alt: "{photo.original_name}",
+                            class: "w-full h-48 object-cover",
+                        }
+                        div { class: "absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2",
+                            p { class: "text-white text-sm truncate", "{photo.original_name}" }
+                        }
+                    }
+                }
             }
-        }
+        },
+        Some(Err(e)) => rsx! {
+            div { class: "text-red-500 text-center p-4", "Błąd ładowania zdjęć: {e}" }
+        },
+        None => rsx! {
+            div { class: "text-center p-8 text-gray-400", "Ładowanie zdjęć..." }
+        },
     }
 }

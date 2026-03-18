@@ -19,7 +19,7 @@ desktop = ["dioxus/desktop"]
 # The feature that are only required for the mobile = ["dioxus/mobile"] build target should be optional and only enabled in the mobile = ["dioxus/mobile"] feature
 mobile = ["dioxus/mobile"]
 # The feature that are only required for the server = ["dioxus/server"] build target should be optional and only enabled in the server = ["dioxus/server"] feature
-server = ["dioxus/server", "dep:sqlx", "dep:tokio", "dep:tracing", "dep:tracing-subscriber"]
+server = ["dioxus/server", "dep:sqlx", "dep:tokio", "dep:tracing", "dep:tracing-subscriber", "dep:image", "dep:sha2", "dep:hex", "dep:axum-extra", "dep:axum", "dep:uuid"]
 
 [dependencies.sqlx]
 version = "0.8"
@@ -38,3 +38,34 @@ optional = true
 [dependencies.tracing-subscriber]
 version = "0.3"
 optional = true
+
+[dependencies.image]
+version = "0.25"
+optional = true
+
+[dependencies.sha2]
+version = "0.10"
+optional = true
+
+[dependencies.hex]
+version = "0.4"
+optional = true
+
+[dependencies.axum-extra]
+version = "0.10"
+features = ["multipart"]
+optional = true
+
+[dependencies.axum]
+version = "0.8"
+optional = true
+
+[dependencies.uuid]
+version = "1"
+features = ["v4"]
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["FormData", "File", "Blob", "HtmlInputElement", "FileList"] }
+gloo-net = "0.6"
+wasm-bindgen = "0.2"

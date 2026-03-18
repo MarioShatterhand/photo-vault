@@ -120,9 +120,9 @@ cargo test            # Run tests
 cargo clippy          # Lint
 ```
 
-## Current Phase: 2 — Upload & Gallery
+## Current Phase: 3 — Lightbox & Detail View
 
-Phase 1 (Scaffold) is complete. Now building core photo functionality.
+Phases 1-2 complete. Now building photo viewing experience.
 
 ### Phase 1 goals (DONE):
 - [x] Project created with dx new (Jumpstart, fullstack, router, tailwind)
@@ -135,11 +135,15 @@ Phase 1 (Scaffold) is complete. Now building core photo functionality.
 - [x] First migration: photos table
 - [x] Verify everything compiles and `dx serve` shows the new layout
 
-### Phase 2 goals (next):
-- [ ] File upload via dedicated Axum multipart endpoint
-- [ ] Save photo to disk + record in SQLite
-- [ ] Thumbnail generation on upload (image crate, 300px)
-- [ ] Basic gallery grid showing thumbnails from DB
+### Phase 2 goals (DONE):
+- [x] File upload via dedicated Axum multipart endpoint (POST /api/upload, axum-extra multipart)
+- [x] Save photo to disk + record in SQLite (SHA-256 content-hash filenames, dedup)
+- [x] Thumbnail generation on upload (image crate, 300px wide, JPEG)
+- [x] Basic gallery grid showing thumbnails from DB (use_server_future SSR)
+- [x] File serving endpoints (GET /api/photos/{id}/thumb, /full)
+- [x] Upload from WASM (web_sys FormData + gloo-net)
+- [x] Gallery refresh after upload (Signal context)
+- [x] File validation (JPEG/PNG/WebP/GIF, 20MB limit + DefaultBodyLimit)
 
 ### Phase 3 goals:
 - [ ] Lightbox component (click thumbnail → fullscreen)
