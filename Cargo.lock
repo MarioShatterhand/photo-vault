@@ -1185,28 +1185,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfc4b8cdc440a55c17355542fc2089d97949bba674255d84cac77805e1db8c9f"
 
 [[package]]
-name = "dioxus-demo"
-version = "0.1.0"
-dependencies = [
- "axum",
- "axum-extra",
- "dioxus",
- "gloo-net",
- "hex",
- "image",
- "js-sys",
- "serde",
- "sha2",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "dioxus-desktop"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4266,6 +4244,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
 dependencies = [
  "siphasher 1.0.2",
+]
+
+[[package]]
+name = "photo-vault"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum-extra",
+ "dioxus",
+ "gloo-net",
+ "hex",
+ "image",
+ "js-sys",
+ "serde",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

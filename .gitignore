@@ -11,3 +11,5 @@ uploads/
 photovault.db
 photovault.db-shm
 photovault.db-wal
+.env
+.env.*

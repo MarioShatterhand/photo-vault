@@ -1,5 +1,5 @@
 [package]
-name = "dioxus-demo"
+name = "photo-vault"
 version = "0.1.0"
 authors = ["Mariusz Pierzchała <mario.pierzchala@outlook.com>"]
 edition = "2021"
