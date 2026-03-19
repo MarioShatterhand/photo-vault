@@ -1,22 +1,31 @@
 use dioxus::prelude::*;
-use crate::api::list_photos;
 use crate::components::{LazyImage, Lightbox};
+use crate::models::Photo;
 
 #[component]
-pub fn PhotoGrid(refresh: ReadSignal<u64>) -> Element {
+pub fn PhotoGrid(refresh: ReadSignal<u64>, query: ReadSignal<String>) -> Element {
     let mut current_lightbox: Signal<Option<usize>> = use_signal(|| None);
-    let photos = use_server_future(move || {
+
+    let photos = use_resource(move || {
         let _ = refresh();
-        list_photos()
-    })?;
+        let q = query();
+        async move {
+            fetch_photos(&q).await
+        }
+    });
 
     match photos() {
         Some(Ok(photos)) => rsx! {
             div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4",
                 if photos.is_empty() {
                     div { class: "col-span-full text-center text-gray-500 py-12",
-                        p { class: "text-lg", "Brak zdjęć" }
-                        p { class: "text-sm mt-2", "Dodaj zdjęcia, aby zobaczyć je tutaj" }
+                        if query().is_empty() {
+                            p { class: "text-lg", "Brak zdjęć" }
+                            p { class: "text-sm mt-2", "Dodaj zdjęcia, aby zobaczyć je tutaj" }
+                        } else {
+                            p { class: "text-lg", "Nie znaleziono zdjęć" }
+                            p { class: "text-sm mt-2", "Spróbuj innej frazy wyszukiwania" }
+                        }
                     }
                 }
                 for (index, photo) in photos.iter().enumerate() {
@@ -47,5 +56,35 @@ pub fn PhotoGrid(refresh: ReadSignal<u64>) -> Element {
         None => rsx! {
             div { class: "text-center p-8 text-gray-400", "Ładowanie zdjęć..." }
         },
+    }
+}
+
+async fn fetch_photos(query: &str) -> Result<Vec<Photo>, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let url = if query.is_empty() {
+            "/api/photos".to_string()
+        } else {
+            format!("/api/photos?q={}", js_sys::encode_uri_component(query))
+        };
+
+        let resp = gloo_net::http::Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request error: {e}"))?;
+
+        if !resp.ok() {
+            return Err(format!("Server error: {}", resp.status()));
+        }
+
+        resp.json::<Vec<Photo>>()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = query;
+        Ok(vec![])
     }
 }

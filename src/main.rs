@@ -59,6 +59,8 @@ fn main() {
                 .layer(axum::middleware::from_fn(server::session::auth_middleware));
 
             let router = dioxus::server::router(App)
+                // Public photo listing
+                .route("/api/photos", axum::routing::get(server::photos::list_photos))
                 // Public auth routes
                 .route("/api/auth/status", axum::routing::get(server::session::auth_status))
                 .route("/api/auth/register/start", axum::routing::post(server::auth::register_start))

@@ -1,7 +1,8 @@
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum_extra::extract::Multipart;
+use serde::Deserialize;
 use image::imageops::FilterType;
 use image::GenericImageView;
 use sha2::{Digest, Sha256};
@@ -234,5 +235,46 @@ pub async fn delete_photo(Path(public_id): Path<String>) -> Result<StatusCode, (
 
     tracing::info!("Deleted photo: {} ({})", photo.original_name, photo.public_id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SearchParams {
+    pub q: Option<String>,
+}
+
+/// GET /api/photos?q=search_term
+pub async fn list_photos(Query(params): Query<SearchParams>) -> Result<Json<Vec<Photo>>, (StatusCode, String)> {
+    let query = params.q.unwrap_or_default().trim().to_string();
+
+    if query.is_empty() {
+        let photos = sqlx::query_as::<_, Photo>(
+            "SELECT * FROM photos ORDER BY created_at DESC"
+        )
+        .fetch_all(&*DB)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        return Ok(Json(photos));
+    }
+
+    let sanitized = sanitize_fts_query(&query);
+    let photos = sqlx::query_as::<_, Photo>(
+        "SELECT p.* FROM photos p JOIN photos_fts ON photos_fts.rowid = p.id WHERE photos_fts MATCH ? ORDER BY rank"
+    )
+    .bind(&sanitized)
+    .fetch_all(&*DB)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    Ok(Json(photos))
+}
+
+fn sanitize_fts_query(input: &str) -> String {
+    input.split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|word| {
+            let escaped = word.replace('"', "\"\"");
+            format!("\"{}\"*", escaped)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 

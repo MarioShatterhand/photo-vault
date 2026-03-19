@@ -4351,6 +4351,7 @@ dependencies = [
  "chrono",
  "dioxus",
  "gloo-net",
+ "gloo-timers",
  "hex",
  "image",
  "js-sys",

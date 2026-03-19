@@ -28,13 +28,13 @@ libraries, no npm, everything hand-built in Rust.
 ```
 src/
 ├── main.rs              # dioxus::launch, root App component, Route enum, Axum route wiring
-├── api.rs               # Shared server functions (list_photos)
+├── api.rs               # (unused — photo listing moved to server/photos.rs as Axum handler)
 ├── models/
 │   └── photo.rs         # Photo struct (id, public_id, filename, hash, size, width, height, created_at)
 ├── components/
 │   ├── mod.rs
-│   ├── photo_grid.rs    # Thumbnail grid with LazyImage + Lightbox integration
-│   ├── search_bar.rs    # Debounced search input
+│   ├── photo_grid.rs    # Thumbnail grid with LazyImage + Lightbox, fetches via gloo-net GET /api/photos?q=
+│   ├── search_bar.rs    # Debounced search input (300ms, gloo-timers, clear button)
 │   ├── upload_form.rs   # File upload component (web_sys FormData + gloo-net)
 │   ├── lightbox.rs      # Fullscreen photo viewer with metadata panel + delete
 │   ├── lazy_image.rs    # IntersectionObserver lazy loading wrapper
@@ -51,7 +51,7 @@ src/
 │   └── passkeys.rs      # Passkey management (list, add, rename, delete)
 └── server/
     ├── mod.rs
-    ├── photos.rs        # Photo CRUD: upload, list, serve thumb/full, delete
+    ├── photos.rs        # Photo CRUD: upload, list (FTS5 search), serve thumb/full, delete
     ├── db.rs            # SQLite connection pool, migrations
     ├── auth.rs          # WebAuthn handlers: register, login, logout, passkey management
     └── session.rs       # Session middleware, cookie management, auth_status endpoint
@@ -62,7 +62,7 @@ src/
 - `assets/` — static assets (CSS, images), processed by dx CLI
 - `uploads/` — photo storage (gitignored), created at runtime
 - `uploads/thumbs/` — generated thumbnails (300px wide)
-- `migrations/` — SQLite migrations (photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges)
+- `migrations/` — SQLite migrations (photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts)
 
 ## Authentication (Phase 1.5)
 
@@ -72,7 +72,7 @@ src/
 - **WebAuthn via `webauthn-rs` 0.5**: `rp_id = "localhost"`, `rp_origin = "http://localhost:8080"`.
 - **Auth guard in Navbar**: Calls `GET /api/auth/status` on mount. Redirects to `/register` (no users) or `/login` (no session).
 - **Protected API routes**: Upload, delete, passkey management require valid session (Axum middleware).
-- **Public routes**: `/login`, `/register`, `/api/auth/status`, `/api/auth/login/*`, `/api/auth/register/*`, photo serving (thumb/full).
+- **Public routes**: `/login`, `/register`, `/api/auth/status`, `/api/auth/login/*`, `/api/auth/register/*`, photo listing (`/api/photos`), photo serving (thumb/full).
 - **WebAuthn JS interop**: Uses `document::eval()` with inline JS for `navigator.credentials.create/get` (base64url↔ArrayBuffer conversions).
 - **Important**: WebAuthn requires `localhost` (not `127.0.0.1`) — "insecure protocol" error otherwise.
 
@@ -88,7 +88,7 @@ src/
 - Server functions use **`#[post("/path")]` / `#[get("/path")]`** macros (NOT `#[server]` — that's pre-0.7).
   They generate API endpoints on server, HTTP calls on client. See AGENTS.md for examples.
 - All props must implement `Clone + PartialEq` (Dioxus requirement for memoization).
-- Use `ReadOnlySignal<T>` for reactive props that should auto-trigger re-renders in child components.
+- Use `ReadSignal<T>` for reactive props that should auto-trigger re-renders in child components (note: `ReadOnlySignal` is deprecated in 0.7.3).
 - Use `Signal<T>` for two-way binding props (e.g. input components).
 - Assets use the `asset!()` macro: `img { src: asset!("/assets/logo.png") }`
 - RSX! macro for all markup — it looks like JSX but is Rust. Example:
@@ -121,7 +121,7 @@ Dioxus server functions serialize arguments, so large binary uploads must NOT go
 
 - SQLite via `sqlx` with compile-time query checking where possible.
 - Migrations in `migrations/` directory, run at startup.
-- 7 migrations: photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges.
+- 8 migrations: photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts.
 - FTS5 virtual table for search (photo name, tags, EXIF data).
 
 ### Styling
@@ -149,7 +149,7 @@ cargo clippy          # Lint
 
 ## Current Phase: 4 — Search
 
-Phases 1-3 and 1.5 complete. Now building search functionality.
+Phases 1-4 and 1.5 complete.
 
 ### Phase 1 goals (DONE):
 - [x] Project scaffold, route structure, Navbar, SQLite setup, Photo model
@@ -171,10 +171,10 @@ Phases 1-3 and 1.5 complete. Now building search functionality.
 - [x] Logout (POST /api/auth/logout destroys session + redirect)
 - [x] Passkey management page (list, add, rename, delete with last-passkey guard)
 
-### Phase 4 goals:
-- [ ] SQLite FTS5 search
-- [ ] Debounced search bar
-- [ ] Search results update gallery in real time
+### Phase 4 goals (DONE — Search):
+- [x] SQLite FTS5 search (virtual table + triggers for insert/delete/update sync)
+- [x] Debounced search bar (300ms, gloo-timers, clear button)
+- [x] Search results update gallery in real time (use_server_future reactive on query signal)
 
 ### Phase 5 goals:
 - [ ] Drag-and-drop upload (DragEvent via web-sys)
@@ -195,6 +195,7 @@ Phases 1-3 and 1.5 complete. Now building search functionality.
 ### Public (no auth)
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET | /api/photos?q= | List/search photos (FTS5 prefix match) |
 | GET | /api/auth/status | Check setup + auth state |
 | POST | /api/auth/register/start | Start registration ceremony |
 | POST | /api/auth/register/finish | Complete registration |
