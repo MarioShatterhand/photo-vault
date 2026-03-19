@@ -18,6 +18,7 @@ libraries, no npm, everything hand-built in Rust.
 - **Frontend**: RSX! macro → compiled to WASM, styled with Tailwind CSS
 - **Backend**: Axum (integrated via Dioxus fullstack), server functions
 - **Database**: SQLite via `sqlx` (with FTS5 for full-text search)
+- **Auth**: WebAuthn/Passkeys via `webauthn-rs` (passkey-only, zero passwords)
 - **Image processing**: `image` crate (server-side only — never in WASM)
 - **CLI**: `dx serve` for development, `dx build --release` for production
 - **IDE**: RustRover
@@ -26,7 +27,7 @@ libraries, no npm, everything hand-built in Rust.
 
 ```
 src/
-├── main.rs              # dioxus::launch, root App component, Route enum
+├── main.rs              # dioxus::launch, root App component, Route enum, Axum route wiring
 ├── api.rs               # Shared server functions (list_photos)
 ├── models/
 │   └── photo.rs         # Photo struct (id, public_id, filename, hash, size, width, height, created_at)
@@ -36,16 +37,24 @@ src/
 │   ├── search_bar.rs    # Debounced search input
 │   ├── upload_form.rs   # File upload component (web_sys FormData + gloo-net)
 │   ├── lightbox.rs      # Fullscreen photo viewer with metadata panel + delete
-│   └── lazy_image.rs    # IntersectionObserver lazy loading wrapper
+│   ├── lazy_image.rs    # IntersectionObserver lazy loading wrapper
+│   ├── login_form.rs    # Passkey login (credentials.get via document::eval JS interop)
+│   ├── register_form.rs # Passkey registration (credentials.create via document::eval JS interop)
+│   └── passkey_card.rs  # Single passkey display card (name, dates, rename/delete)
 ├── views/
 │   ├── mod.rs
 │   ├── home.rs          # Landing / gallery view
 │   ├── upload.rs        # Upload page
-│   └── navbar.rs        # Navigation bar
+│   ├── navbar.rs        # Navigation bar + auth guard (redirects unauthenticated users)
+│   ├── login.rs         # Login page (outside Navbar layout)
+│   ├── register.rs      # Register page (outside Navbar layout, first-register-wins)
+│   └── passkeys.rs      # Passkey management (list, add, rename, delete)
 └── server/
     ├── mod.rs
-    ├── photos.rs        # Server functions: upload, list, search, serve file
-    └── db.rs            # SQLite connection pool, migrations, queries
+    ├── photos.rs        # Photo CRUD: upload, list, serve thumb/full, delete
+    ├── db.rs            # SQLite connection pool, migrations
+    ├── auth.rs          # WebAuthn handlers: register, login, logout, passkey management
+    └── session.rs       # Session middleware, cookie management, auth_status endpoint
 ```
 
 ### Key directories
@@ -53,12 +62,26 @@ src/
 - `assets/` — static assets (CSS, images), processed by dx CLI
 - `uploads/` — photo storage (gitignored), created at runtime
 - `uploads/thumbs/` — generated thumbnails (300px wide)
+- `migrations/` — SQLite migrations (photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges)
+
+## Authentication (Phase 1.5)
+
+- **Single-user, first-register-wins**: First user to register owns the app. No open registration after that.
+- **Passkey-only, zero fallback**: No passwords. Recovery = register 2+ passkeys.
+- **Server-side sessions in SQLite**: `sessions` table with token_hash. Cookie: `photovault_session`.
+- **WebAuthn via `webauthn-rs` 0.5**: `rp_id = "localhost"`, `rp_origin = "http://localhost:8080"`.
+- **Auth guard in Navbar**: Calls `GET /api/auth/status` on mount. Redirects to `/register` (no users) or `/login` (no session).
+- **Protected API routes**: Upload, delete, passkey management require valid session (Axum middleware).
+- **Public routes**: `/login`, `/register`, `/api/auth/status`, `/api/auth/login/*`, `/api/auth/register/*`, photo serving (thumb/full).
+- **WebAuthn JS interop**: Uses `document::eval()` with inline JS for `navigator.credentials.create/get` (base64url↔ArrayBuffer conversions).
+- **Important**: WebAuthn requires `localhost` (not `127.0.0.1`) — "insecure protocol" error otherwise.
 
 ## Conventions & Rules
 
 ### Rust / Dioxus
 
 - **No JavaScript. Ever.** Browser APIs accessed through `web-sys` / `wasm-bindgen` only.
+  Exception: `document::eval()` for WebAuthn ceremonies (base64url↔ArrayBuffer conversion is impractical in pure web-sys).
 - Use `#[component]` macro for all UI components.
 - Use `use_signal` for local state, `use_server_future` for server-side data fetching (ensures hydration works).
 - Use `use_resource` for client-only async operations.
@@ -98,6 +121,7 @@ Dioxus server functions serialize arguments, so large binary uploads must NOT go
 
 - SQLite via `sqlx` with compile-time query checking where possible.
 - Migrations in `migrations/` directory, run at startup.
+- 7 migrations: photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges.
 - FTS5 virtual table for search (photo name, tags, EXIF data).
 
 ### Styling
@@ -106,6 +130,7 @@ Dioxus server functions serialize arguments, so large binary uploads must NOT go
 - Classes go directly in RSX: `div { class: "flex items-center gap-2", ... }`
 - No separate CSS files for components — keep styles inline via Tailwind classes.
 - Responsive design: mobile-first, use `sm:`, `md:`, `lg:` breakpoints.
+- Dark theme: slate-950 background, slate-800 cards, blue-600 accent.
 
 ### Error handling
 
@@ -124,56 +149,27 @@ cargo clippy          # Lint
 
 ## Current Phase: 4 — Search
 
-Phases 1-3 complete. Now building search functionality.
+Phases 1-3 and 1.5 complete. Now building search functionality.
 
 ### Phase 1 goals (DONE):
-- [x] Project created with dx new (Jumpstart, fullstack, router, tailwind)
-- [x] Remove demo content (hero, blog, echo components)
-- [x] Set up route structure: Home (gallery), Upload, About
-- [x] Create placeholder components: PhotoGrid, SearchBar, UploadForm
-- [x] Navbar with PhotoVault branding and navigation links (dark topbar, slate-900)
-- [x] Add SQLx + SQLite dependency, create db.rs with connection pool (Lazy<SqlitePool>)
-- [x] Create Photo model (id, filename, original_name, hash, size, created_at)
-- [x] First migration: photos table
-- [x] Verify everything compiles and `dx serve` shows the new layout
+- [x] Project scaffold, route structure, Navbar, SQLite setup, Photo model
 
 ### Phase 2 goals (DONE):
-- [x] File upload via dedicated Axum multipart endpoint (POST /api/upload, axum-extra multipart)
-- [x] Save photo to disk + record in SQLite (SHA-256 content-hash filenames, dedup)
-- [x] Thumbnail generation on upload (image crate, 300px wide, JPEG)
-- [x] Basic gallery grid showing thumbnails from DB (use_server_future SSR)
-- [x] File serving endpoints (GET /api/photos/{id}/thumb, /full)
-- [x] Upload from WASM (web_sys FormData + gloo-net)
-- [x] Gallery refresh after upload (Signal context)
-- [x] File validation (JPEG/PNG/WebP/GIF, 20MB limit + DefaultBodyLimit)
+- [x] File upload (Axum multipart), thumbnails, gallery grid, file serving, dedup
 
 ### Phase 3 goals (DONE):
-- [x] Lightbox component (click thumbnail → fullscreen, overlay + metadata panel)
-- [x] Lazy loading (IntersectionObserver via web-sys, skeleton placeholders)
-- [x] Photo detail view with metadata (name, size, dimensions, date)
-- [x] Delete photo (server endpoint + remove file/thumb + confirm dialog)
-- [x] width/height dimensions stored in DB, read at upload time
-- [x] Cache-Control headers on image-serving endpoints
-- [x] Keyboard navigation (ArrowLeft/Right, Escape) + overlay click-to-close
+- [x] Lightbox, lazy loading, metadata, delete, keyboard navigation
 
-### Phase 1.5 goals (BACKLOG — Authentication, WebAuthn/Passkeys):
-- [ ] Add `webauthn-rs` dependency (server-side only)
-- [ ] DB migration: users table (id, username, created_at) + credentials table (credential_id, user_id, passkey_json)
-- [ ] Registration flow:
-  - [ ] Register page with username input
-  - [ ] Server: generate challenge via webauthn-rs
-  - [ ] Client: call navigator.credentials.create() via web-sys
-  - [ ] Server: verify & store credential
-- [ ] Login flow:
-  - [ ] Login page
-  - [ ] Server: generate auth challenge
-  - [ ] Client: call navigator.credentials.get() via web-sys
-  - [ ] Server: verify assertion, create session
-- [ ] Session management:
-  - [ ] Cookie-based session token
-  - [ ] Axum middleware rejecting unauthenticated requests
-  - [ ] Redirect to login if no valid session
-- [ ] Auth guard on all routes except /login and /register
+### Phase 1.5 goals (DONE — Authentication, WebAuthn/Passkeys):
+- [x] `webauthn-rs` 0.5 dependency (server-side, `danger-allow-state-serialisation`)
+- [x] DB migrations: users, credentials, sessions, webauthn_challenges tables
+- [x] Registration flow (first-register-wins, navigator.credentials.create via eval)
+- [x] Login flow (navigator.credentials.get via eval, session cookie)
+- [x] Session management (cookie-based, SHA-256 hashed tokens, 30-day expiry)
+- [x] Axum auth middleware on protected routes (upload, delete, passkey management)
+- [x] Client-side auth guard in Navbar (redirect to /register or /login)
+- [x] Logout (POST /api/auth/logout destroys session + redirect)
+- [x] Passkey management page (list, add, rename, delete with last-passkey guard)
 
 ### Phase 4 goals:
 - [ ] SQLite FTS5 search
@@ -194,36 +190,30 @@ Phases 1-3 complete. Now building search functionality.
 - [ ] Pagination
 - [ ] Dark mode
 
-## Dependencies (target Cargo.toml)
+## API Endpoints
 
-The project uses Cargo feature flags to split server/client code (as described in AGENTS.md):
+### Public (no auth)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | /api/auth/status | Check setup + auth state |
+| POST | /api/auth/register/start | Start registration ceremony |
+| POST | /api/auth/register/finish | Complete registration |
+| POST | /api/auth/login/start | Start login ceremony |
+| POST | /api/auth/login/finish | Complete login |
 
-```toml
-[features]
-default = ["web", "server"]
-web = ["dioxus/web"]
-server = ["dioxus/server"]
-```
-
-Target dependencies:
-
-```toml
-dioxus = { version = "0.7", features = ["fullstack", "router"] }
-serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-image = "0.25"
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-sha2 = "0.10"
-hex = "0.4"
-chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", features = ["multipart"] }
-axum-extra = { version = "0.10", features = ["multipart"] }
-
-# Only compiled for server target:
-# [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# (sqlx, image, axum-extra go here if needed)
-```
+### Protected (require session)
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | /api/upload | Upload photo |
+| DELETE | /api/photos/{id} | Delete photo |
+| GET | /api/photos/{id}/thumb | Serve thumbnail |
+| GET | /api/photos/{id}/full | Serve full image |
+| POST | /api/auth/logout | Destroy session |
+| GET | /api/auth/passkeys | List user's passkeys |
+| POST | /api/auth/passkeys/add/start | Start adding passkey |
+| POST | /api/auth/passkeys/add/finish | Finish adding passkey |
+| PUT | /api/auth/passkeys/{id}/name | Rename passkey |
+| DELETE | /api/auth/passkeys/{id} | Delete passkey (blocks last) |
 
 ## Important Gotchas
 
@@ -246,3 +236,12 @@ axum-extra = { version = "0.10", features = ["multipart"] }
 6. **Tailwind in Dioxus**: Classes must be full strings, not dynamically constructed.
    Tailwind's purge won't detect `format!("grid-cols-{n}")`. Use conditional full classes instead:
    `class: if wide { "grid-cols-4" } else { "grid-cols-2" }`
+
+7. **WebAuthn requires localhost**: Use `http://localhost:8080`, not `127.0.0.1`. The latter
+   triggers "insecure protocol" errors from passkey providers.
+
+8. **WASM-side HTTP calls**: Use `gloo_net::http::Request` (gloo-net crate). Wrap in
+   `#[cfg(target_arch = "wasm32")]` blocks since gloo-net is only available on wasm32.
+
+9. **Shared deps**: `serde_json` is a non-optional dependency (used by both server and WASM).
+   Don't make it feature-gated.

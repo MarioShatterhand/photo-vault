@@ -171,7 +171,7 @@ pub async fn serve_thumbnail(Path(public_id): Path<String>) -> Result<Response, 
     Ok((
         [
             (header::CONTENT_TYPE, "image/jpeg"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, "private, no-store"),
         ],
         bytes,
     ).into_response())
@@ -197,7 +197,7 @@ pub async fn serve_full(Path(public_id): Path<String>) -> Result<Response, Statu
     Ok((
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, "private, no-store"),
         ],
         bytes,
     ).into_response())
