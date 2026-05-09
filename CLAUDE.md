@@ -60,21 +60,28 @@ src/
 ### Key directories
 
 - `assets/` — static assets (CSS, images), processed by dx CLI
-- `uploads/` — photo storage (gitignored), created at runtime
-- `uploads/thumbs/` — generated thumbnails (300px wide)
-- `migrations/` — SQLite migrations (photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts)
+- `uploads/{user_id}/` — original photos per user (gitignored), created on demand at upload
+- `uploads/{user_id}/thumbs/` — generated thumbnails (300px wide), per user
+- `migrations/` — SQLite migrations (photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts, photos_user_scope)
 
-## Authentication (Phase 1.5)
+## Authentication & Multi-User (Phase 1.5 + 1.6)
 
-- **Single-user, first-register-wins**: First user to register owns the app. No open registration after that.
-- **Passkey-only, zero fallback**: No passwords. Recovery = register 2+ passkeys.
-- **Server-side sessions in SQLite**: `sessions` table with token_hash. Cookie: `photovault_session`.
-- **WebAuthn via `webauthn-rs` 0.5**: `rp_id = "localhost"`, `rp_origin = "http://localhost:8080"`.
-- **Auth guard in Navbar**: Calls `GET /api/auth/status` on mount. Redirects to `/register` (no users) or `/login` (no session).
-- **Protected API routes**: Upload, delete, passkey management require valid session (Axum middleware).
-- **Public routes**: `/login`, `/register`, `/api/auth/status`, `/api/auth/login/*`, `/api/auth/register/*`, photo listing (`/api/photos`), photo serving (thumb/full).
+- **Multi-user, open registration**: Anyone can register at `/register`. No admin role; all users equal.
+- **Passkey-only, zero fallback**: No passwords. Recovery = register 2+ passkeys per account.
+- **Login is `username + passkey`**: User types username, server returns only that user's allowed credentials, browser surfaces matching passkey. Generic 400 for unknown user (no enumeration).
+- **Per-user data isolation**: Every photo row carries `user_id NOT NULL`; every photo handler scopes by `user_id`. Files live in `uploads/{user_id}/`. Cross-user URL access returns 404.
+- **Per-user dedup**: `UNIQUE(user_id, hash)` — same user uploading same file is a no-op; different users uploading the same bytes get independent rows + files (privacy-preserving, no cross-user leak via existence checks).
+- **Server-side sessions in SQLite**: `sessions` table with SHA-256-hashed token. Cookie: `photovault_session`.
+- **WebAuthn via `webauthn-rs` 0.5**: configured from `.env` — `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_ORIGIN`, `WEBAUTHN_RP_NAME` (defaults: `localhost`, `http://localhost:8080`, `PhotoVault`).
+- **Auth guard in Navbar**: Calls `GET /api/auth/status` on mount; redirects to `/login` if no session. Login page links to `/register`.
+- **Protected API routes**: Upload, list, serve thumb/full, delete, all passkey management — Axum middleware injects `user_id` Extension.
+- **Public routes**: `/login`, `/register`, `/api/auth/status`, `/api/auth/login/*`, `/api/auth/register/*`. **Photo listing/serving is NOT public** anymore.
 - **WebAuthn JS interop**: Uses `document::eval()` with inline JS for `navigator.credentials.create/get` (base64url↔ArrayBuffer conversions).
-- **Important**: WebAuthn requires `localhost` (not `127.0.0.1`) — "insecure protocol" error otherwise.
+- **Important**: WebAuthn requires `localhost` (not `127.0.0.1`) in dev — "insecure protocol" error otherwise. In prod, `WEBAUTHN_RP_ORIGIN` must be `https://...`.
+
+### Multi-user migration history (Phase 1.6)
+- DB migration `20240109_photos_user_scope.sql` recreates `photos` with `user_id NOT NULL`, `UNIQUE(user_id, hash)`, and rebuilds FTS5 + triggers. Backfills existing photos to `MIN(users.id)`.
+- One-time, idempotent file relocator in `db.rs` moves legacy `uploads/{filename}` → `uploads/{user_id}/{filename}` (and same for thumbs) at startup. No-op on fresh installs and after first successful relocation.
 
 ## Conventions & Rules
 
@@ -114,15 +121,15 @@ Dioxus server functions serialize arguments, so large binary uploads must NOT go
 
 - **Always server-side.** The `image` crate is too slow in WASM.
 - Generate thumbnails (300px width, preserve aspect ratio) on upload.
-- Store originals in `uploads/` and thumbnails in `uploads/thumbs/`.
-- Use content-hash filenames to avoid collisions: `{sha256_hex}.{ext}`
+- Store originals in `uploads/{user_id}/` and thumbnails in `uploads/{user_id}/thumbs/`.
+- Use content-hash filenames to avoid collisions: `{sha256_hex}.{ext}`. Per-user dirs are created lazily by `upload_photo`.
 
 ### Database
 
 - SQLite via `sqlx` with compile-time query checking where possible.
 - Migrations in `migrations/` directory, run at startup.
-- 8 migrations: photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts.
-- FTS5 virtual table for search (photo name, tags, EXIF data).
+- 9 migrations: photos, public_id, dimensions, users, credentials, sessions, webauthn_challenges, photos_fts, photos_user_scope.
+- FTS5 virtual table for search (photo name, tags, EXIF data); search queries are `JOIN`ed with `photos.user_id = ?` for per-user scoping.
 
 ### Styling
 
@@ -147,9 +154,9 @@ cargo test            # Run tests
 cargo clippy          # Lint
 ```
 
-## Current Phase: 4 — Search
+## Current Phase: 1.6 — Multi-user
 
-Phases 1-4 and 1.5 complete.
+Phases 1-4, 1.5, and 1.6 complete.
 
 ### Phase 1 goals (DONE):
 - [x] Project scaffold, route structure, Navbar, SQLite setup, Photo model
@@ -163,13 +170,20 @@ Phases 1-4 and 1.5 complete.
 ### Phase 1.5 goals (DONE — Authentication, WebAuthn/Passkeys):
 - [x] `webauthn-rs` 0.5 dependency (server-side, `danger-allow-state-serialisation`)
 - [x] DB migrations: users, credentials, sessions, webauthn_challenges tables
-- [x] Registration flow (first-register-wins, navigator.credentials.create via eval)
-- [x] Login flow (navigator.credentials.get via eval, session cookie)
+- [x] Registration + login flow (navigator.credentials.create/get via eval, session cookie)
 - [x] Session management (cookie-based, SHA-256 hashed tokens, 30-day expiry)
-- [x] Axum auth middleware on protected routes (upload, delete, passkey management)
-- [x] Client-side auth guard in Navbar (redirect to /register or /login)
+- [x] Axum auth middleware on protected routes
+- [x] Client-side auth guard in Navbar
 - [x] Logout (POST /api/auth/logout destroys session + redirect)
 - [x] Passkey management page (list, add, rename, delete with last-passkey guard)
+
+### Phase 1.6 goals (DONE — Multi-user):
+- [x] DB: `photos.user_id NOT NULL` + `UNIQUE(user_id, hash)`, FTS5 rebuilt, backfill for legacy data
+- [x] Per-user file storage (`uploads/{user_id}/...`) + idempotent legacy file relocator at startup
+- [x] Auth: open registration (no first-register-wins), `username + passkey` login, anti-enumeration generic error
+- [x] Photos backend: every handler scoped by `user_id`, all photo endpoints behind auth middleware
+- [x] `.env` config for WebAuthn (`WEBAUTHN_RP_ID/ORIGIN/NAME`) via `dotenvy`, `.env.example` checked in
+- [x] Frontend: username input on login, cross-links Login ⇄ Register, Navbar guard simplified
 
 ### Phase 4 goals (DONE — Search):
 - [x] SQLite FTS5 search (virtual table + triggers for insert/delete/update sync)
@@ -195,20 +209,20 @@ Phases 1-4 and 1.5 complete.
 ### Public (no auth)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | /api/photos?q= | List/search photos (FTS5 prefix match) |
-| GET | /api/auth/status | Check setup + auth state |
-| POST | /api/auth/register/start | Start registration ceremony |
+| GET | /api/auth/status | Report whether the request has a valid session |
+| POST | /api/auth/register/start | Start registration ceremony (`{username}`) |
 | POST | /api/auth/register/finish | Complete registration |
-| POST | /api/auth/login/start | Start login ceremony |
+| POST | /api/auth/login/start | Start login ceremony (`{username}` — server returns only that user's allowed credentials) |
 | POST | /api/auth/login/finish | Complete login |
 
-### Protected (require session)
+### Protected (require session — `user_id` injected into Axum extensions)
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | /api/upload | Upload photo |
-| DELETE | /api/photos/{id} | Delete photo |
-| GET | /api/photos/{id}/thumb | Serve thumbnail |
-| GET | /api/photos/{id}/full | Serve full image |
+| GET | /api/photos?q= | List/search current user's photos (FTS5 prefix match, scoped) |
+| POST | /api/upload | Upload photo to current user's library |
+| DELETE | /api/photos/{public_id} | Delete (only the current user's photo) |
+| GET | /api/photos/{public_id}/thumb | Serve thumbnail (404 if not owned by current user) |
+| GET | /api/photos/{public_id}/full | Serve full image (404 if not owned by current user) |
 | POST | /api/auth/logout | Destroy session |
 | GET | /api/auth/passkeys | List user's passkeys |
 | POST | /api/auth/passkeys/add/start | Start adding passkey |

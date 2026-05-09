@@ -2,16 +2,22 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn LoginForm() -> Element {
+    let mut username = use_signal(String::new);
     let mut status = use_signal(|| "idle".to_string());
     let mut error = use_signal(|| None::<String>);
 
     let on_login = move |_| {
+        let name = username().trim().to_string();
+        if name.is_empty() {
+            error.set(Some("Podaj nazwe uzytkownika".to_string()));
+            return;
+        }
         status.set("authenticating".to_string());
         error.set(None);
         spawn(async move {
             #[cfg(target_arch = "wasm32")]
             {
-                match do_login().await {
+                match do_login(&name).await {
                     Ok(_) => {
                         if let Some(window) = web_sys::window() {
                             let _ = window.location().set_href("/");
@@ -34,6 +40,18 @@ pub fn LoginForm() -> Element {
                 }
             }
 
+            div {
+                label { class: "block text-slate-300 text-sm font-medium mb-1", "Nazwa uzytkownika" }
+                input {
+                    class: "w-full bg-slate-700 text-white border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500",
+                    r#type: "text",
+                    placeholder: "np. mariusz",
+                    value: "{username}",
+                    disabled: status() != "idle",
+                    oninput: move |e| username.set(e.value()),
+                }
+            }
+
             button {
                 class: "w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50",
                 disabled: status() != "idle",
@@ -49,9 +67,12 @@ pub fn LoginForm() -> Element {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn do_login() -> Result<(), String> {
-    // 1. Start auth ceremony
+async fn do_login(username: &str) -> Result<(), String> {
+    // 1. Start auth ceremony — server uses username to scope allowed credentials.
+    let start_body = serde_json::json!({"username": username});
     let start_resp = gloo_net::http::Request::post("/api/auth/login/start")
+        .json(&start_body)
+        .map_err(|e| format!("Blad JSON: {e}"))?
         .send()
         .await
         .map_err(|e| format!("Blad sieci: {e}"))?;

@@ -38,6 +38,10 @@ fn main() {
     #[cfg(feature = "server")]
     {
         use tracing_subscriber::fmt;
+
+        // Load .env if present (silent if missing — env vars from the shell still win).
+        let _ = dotenvy::dotenv();
+
         fmt::init();
 
         dioxus::serve(|| async move {
@@ -48,6 +52,7 @@ fn main() {
             let protected_routes = axum::Router::new()
                 .route("/api/upload", axum::routing::post(server::photos::upload_photo)
                     .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024)))
+                .route("/api/photos", axum::routing::get(server::photos::list_photos))
                 .route("/api/photos/{public_id}", axum::routing::delete(server::photos::delete_photo))
                 .route("/api/photos/{public_id}/thumb", axum::routing::get(server::photos::serve_thumbnail))
                 .route("/api/photos/{public_id}/full", axum::routing::get(server::photos::serve_full))
@@ -59,8 +64,6 @@ fn main() {
                 .layer(axum::middleware::from_fn(server::session::auth_middleware));
 
             let router = dioxus::server::router(App)
-                // Public photo listing
-                .route("/api/photos", axum::routing::get(server::photos::list_photos))
                 // Public auth routes
                 .route("/api/auth/status", axum::routing::get(server::session::auth_status))
                 .route("/api/auth/register/start", axum::routing::post(server::auth::register_start))

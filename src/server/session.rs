@@ -120,15 +120,8 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
     Ok(next.run(request).await)
 }
 
-/// GET /api/auth/status — check if app is set up and if user is authenticated
+/// GET /api/auth/status — report whether the request has a valid session.
 pub async fn auth_status(headers: HeaderMap) -> impl IntoResponse {
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-        .fetch_one(&*DB)
-        .await
-        .unwrap_or((0,));
-
-    let setup = user_count.0 > 0;
-
     let mut authenticated = false;
     let mut user_id = None;
 
@@ -140,7 +133,6 @@ pub async fn auth_status(headers: HeaderMap) -> impl IntoResponse {
     }
 
     Json(serde_json::json!({
-        "setup": setup,
         "authenticated": authenticated,
         "user_id": user_id
     }))

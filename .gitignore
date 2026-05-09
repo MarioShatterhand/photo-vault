@@ -13,3 +13,4 @@ photovault.db-shm
 photovault.db-wal
 .env
 .env.*
+!.env.example

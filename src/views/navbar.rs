@@ -6,7 +6,8 @@ pub fn Navbar() -> Element {
     let mut auth_checked = use_signal(|| false);
     let nav = use_navigator();
 
-    // Auth guard: check session on mount, redirect if not authenticated
+    // Auth guard: send unauthenticated visitors to /login.
+    // (Multi-user: anyone can self-register from the login screen.)
     use_effect(move || {
         spawn(async move {
             #[cfg(target_arch = "wasm32")]
@@ -17,13 +18,7 @@ pub fn Navbar() -> Element {
                 {
                     Ok(resp) => {
                         if let Ok(data) = resp.json::<serde_json::Value>().await {
-                            let setup = data["setup"].as_bool().unwrap_or(false);
                             let authed = data["authenticated"].as_bool().unwrap_or(false);
-
-                            if !setup {
-                                nav.push(Route::Register {});
-                                return;
-                            }
                             if !authed {
                                 nav.push(Route::Login {});
                                 return;

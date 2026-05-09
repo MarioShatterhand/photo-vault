@@ -13,11 +13,17 @@ use webauthn_rs::prelude::*;
 use webauthn_rs::WebauthnBuilder;
 
 static WEBAUTHN: LazyLock<Webauthn> = LazyLock::new(|| {
-    let rp_id = "localhost";
-    let rp_origin = url::Url::parse("http://localhost:8080").expect("Invalid URL");
-    WebauthnBuilder::new(rp_id, &rp_origin)
+    let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".to_string());
+    let rp_origin_str = std::env::var("WEBAUTHN_RP_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let rp_name = std::env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "PhotoVault".to_string());
+
+    let rp_origin = url::Url::parse(&rp_origin_str)
+        .unwrap_or_else(|e| panic!("Invalid WEBAUTHN_RP_ORIGIN '{rp_origin_str}': {e}"));
+
+    WebauthnBuilder::new(&rp_id, &rp_origin)
         .expect("Failed to build Webauthn")
-        .rp_name("PhotoVault")
+        .rp_name(&rp_name)
         .build()
         .expect("Failed to build Webauthn")
 });
@@ -27,30 +33,42 @@ pub struct RegisterStartRequest {
     pub username: String,
 }
 
+#[derive(Deserialize)]
+pub struct LoginStartRequest {
+    pub username: String,
+}
+
 /// POST /api/auth/register/start
 pub async fn register_start(
     Json(body): Json<RegisterStartRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // First-register-wins: block if any user exists
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-        .fetch_one(&*DB)
+    let username = body.username.trim();
+    if username.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Username required".to_string()));
+    }
+
+    // Reject if username is already taken (UNIQUE constraint would catch it
+    // at finish, but checking up-front gives a friendlier error and avoids
+    // wasting a WebAuthn ceremony.)
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_optional(&*DB)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-
-    if count.0 > 0 {
-        return Err((StatusCode::FORBIDDEN, "Registration closed".to_string()));
+    if existing.is_some() {
+        return Err((StatusCode::CONFLICT, "Username already taken".to_string()));
     }
 
     let user_uuid = uuid::Uuid::new_v4();
 
     let (ccr, reg_state) = WEBAUTHN
-        .start_passkey_registration(user_uuid, &body.username, &body.username, None)
+        .start_passkey_registration(user_uuid, username, username, None)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebAuthn error: {e}")))?;
 
     // Store challenge state
     let challenge_id = uuid::Uuid::new_v4().to_string();
     let state_json = serde_json::json!({
-        "username": body.username,
+        "username": username,
         "uuid": user_uuid.to_string(),
         "state": serde_json::to_value(&reg_state).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize error: {e}")))?
     });
@@ -168,15 +186,40 @@ pub async fn register_finish(
 }
 
 /// POST /api/auth/login/start
-pub async fn login_start() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Get all credentials
-    let rows: Vec<(String,)> = sqlx::query_as("SELECT passkey_json FROM credentials")
-        .fetch_all(&*DB)
+pub async fn login_start(
+    Json(body): Json<LoginStartRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let username = body.username.trim();
+    if username.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Username required".to_string()));
+    }
+
+    // Generic error string used when the user does not exist or has no passkeys.
+    // Same wording for both cases so the endpoint cannot be used to enumerate accounts.
+    const GENERIC_ERR: &str = "Invalid username or no registered passkey";
+
+    // Look up user by username; bail with the generic error if not found.
+    let user_row: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_optional(&*DB)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let user_id = match user_row {
+        Some((id,)) => id,
+        None => return Err((StatusCode::BAD_REQUEST, GENERIC_ERR.to_string())),
+    };
+
+    // Only this user's credentials may be used in the assertion.
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT passkey_json FROM credentials WHERE user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_all(&*DB)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     if rows.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "No registered credentials".to_string()));
+        return Err((StatusCode::BAD_REQUEST, GENERIC_ERR.to_string()));
     }
 
     let passkeys: Vec<Passkey> = rows
